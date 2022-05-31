@@ -1,0 +1,25 @@
+version: "3.8"
+
+services:
+  postgres-exporter-pis:
+    image: quay.io/prometheuscommunity/postgres-exporter
+    ports:
+      - "9187:9187"
+    environment:
+      - DATA_SOURCE_NAME=postgresql://admin:Admin123_@dbpis:5432/pis?sslmode=disable
+    networks:
+      - monitor-network
+      - dbpis-network
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      restart_policy:
+        condition: on-failure
+
+networks:
+  monitor-network:
+    external: true
+  dbpis-network:
+    external: true

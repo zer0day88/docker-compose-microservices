@@ -1,0 +1,29 @@
+version: "3.8"
+
+services:
+  prometheus-pis:
+    image: prom/prometheus
+    ports:
+      - "3333:9090"
+    networks:
+      - monitor-network
+    volumes:
+      - prom_pis_data:/prometheus-data
+      - "/home/prometheus-pis/volume/prom_pis_config/prometheus.yml:/etc/prometheus/prometheus.yml"
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      restart_policy:
+        condition: on-failure
+
+networks:
+  monitor-network:
+    external: true
+    name: monitor-network
+
+volumes:
+  prom_pis_data:
+    external: true
+    name: prom_pis_data

@@ -1,0 +1,502 @@
+version: "3.8"
+
+services:
+  seq:
+    image: datalust/seq:2021.4
+    environment:
+      - ACCEPT_EULA=Y
+      - SEQ_FIRSTRUN_ADMINPASSWORDHASH=FBPc5qb5r9gr4y9FEt/8wRr1BDYew1bXbLw3FXrwe6OhdV3+bQ==
+      - TZ=Asia/Bangkok
+    volumes:
+      - seq_data:/data
+    networks:
+      - seq-network
+    ports:
+      - "8282:80"
+      - "5341:5341"
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+
+  minio_server:
+    image: minio/minio:RELEASE.2022-02-01T18-00-14Z
+    environment:
+      - MINIO_ROOT_USER=admin
+      - MINIO_ROOT_PASSWORD=Admin123_
+      - MINIO_SERVER_URL=http://localhost:9000
+    volumes:
+      - minio_data:/data
+    networks:
+      - minio-network
+    ports:
+      - "9090:9000"
+      - "9001:9001"
+    command: server /data --console-address ":9001"
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      update_config:
+        parallelism: 2
+        order: start-first
+        failure_action: rollback
+        delay: 5s
+      rollback_config:
+        parallelism: 0
+        order: stop-first
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      retries: 2
+      start_period: 2s
+      timeout: 30s
+
+  statemachinedb:
+    image: mongo:4.4.6
+    environment:
+      - TZ=Asia/Bangkok
+    volumes:
+      - orderstatedb_data:/data/db
+    networks:
+      - sagadb-network
+    ports:
+      - "27017:27017"
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      update_config:
+        parallelism: 2
+        order: start-first
+        failure_action: rollback
+        delay: 5s
+      rollback_config:
+        parallelism: 0
+        order: stop-first
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongo localhost:27017/test --quiet
+      interval: 5s
+      retries: 2
+      start_period: 2s
+      timeout: 15s
+
+  sagastatemachine:
+    image: dockerhiscis/sagastatemachine:latest
+    depends_on:
+      - rabbitmq
+    environment:
+      - TZ=Asia/Bangkok
+    networks:
+      - rabbit-network
+      - sagadb-network
+      - sagamachine-network
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      update_config:
+        parallelism: 2
+        order: start-first
+        failure_action: rollback
+        delay: 5s
+      rollback_config:
+        parallelism: 0
+        order: stop-first
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    healthcheck:
+      test: curl --fail http://localhost:80/health || exit 1
+      interval: 5s
+      retries: 2
+      start_period: 2s
+      timeout: 10s
+
+  rabbitmq:
+    image: rabbitmq:3.8.16-management
+    hostname: rabbitmq
+    environment:
+      - TZ=Asia/Bangkok
+      - RABBITMQ_DEFAULT_USER=admin
+      - RABBITMQ_DEFAULT_PASS=1234
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq/
+      - rabbitmq_log:/var/log/rabbitmq
+    networks:
+      - rabbit-network
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      update_config:
+        parallelism: 2
+        order: start-first
+        failure_action: rollback
+        delay: 5s
+      rollback_config:
+        parallelism: 0
+        order: stop-first
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 30s
+      retries: 2
+      start_period: 2s
+      timeout: 30s
+
+  dbpis:
+    image: postgres:13.3
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=Admin123_
+      - POSTGRES_DB=pis
+      - TZ=Asia/Bangkok
+    volumes:
+      - dbpis_data:/var/lib/postgresql/data/
+    networks:
+      - dbpis-network
+    ports:
+      - "5433:5432"
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      update_config:
+        parallelism: 2
+        order: start-first
+        failure_action: rollback
+        delay: 5s
+      rollback_config:
+        parallelism: 0
+        order: stop-first
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready"]
+      interval: 5s
+      retries: 2
+      start_period: 2s
+      timeout: 10s
+
+  dbpharmm:
+    image: postgres:13.3
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=Admin123_
+      - POSTGRES_DB=phramm
+      - TZ=Asia/Bangkok
+    volumes:
+      - dbpharmm_data:/var/lib/postgresql/data/
+    networks:
+      - dbpharmm-network
+    ports:
+      - "5434:5432"
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      update_config:
+        parallelism: 2
+        order: start-first
+        failure_action: rollback
+        delay: 5s
+      rollback_config:
+        parallelism: 0
+        order: stop-first
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready"]
+      interval: 5s
+      retries: 2
+      start_period: 2s
+      timeout: 10s
+
+  gateway_api:
+    image: dockerhiscis/gateway_api:latest
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - TZ=Asia/Bangkok
+    ports:
+      - "8888:80"
+    networks:
+      - api-network
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      update_config:
+        parallelism: 2
+        order: start-first
+        failure_action: rollback
+        delay: 5s
+      rollback_config:
+        parallelism: 0
+        order: stop-first
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    healthcheck:
+      test: curl --fail http://localhost:81/health || exit 1
+      interval: 5s
+      retries: 2
+      start_period: 2s
+      timeout: 10s
+
+  pis_api:
+    image: dockerhiscis/pis_api:latest
+    depends_on:
+      - dbpis
+      - seq
+      - minio_server
+      - rabbitmq
+      - sagastatemachine
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - "DatabaseSettings:ConnectionString=Server=dbpis;Port=5432;Database=pis;User Id=admin;Password=Admin123_;"
+      - "BridgeSettings:GatewayApi=http://gateway_api:80"
+      - "BridgeSettings:username=superadmin"
+      - "BridgeSettings:password=semarang2021"
+      - "BridgeSettings:apptipe=W"
+      - "MinioSettings:ip=minio_server:9000"
+      - "MinioSettings:user=12345678"
+      - "MinioSettings:password=12345678"
+      - TZ=Asia/Bangkok
+    ports:
+      - "5002:80"
+    networks:
+      - api-network
+      - dbpis-network
+      - rabbit-network
+      - sagamachine-network
+      - seq-network
+      - minio-network
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      update_config:
+        parallelism: 2
+        order: start-first
+        failure_action: rollback
+        delay: 5s
+      rollback_config:
+        parallelism: 0
+        order: stop-first
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    healthcheck:
+      test: curl --fail http://localhost:80/health || exit 1
+      interval: 5s
+      retries: 2
+      start_period: 2s
+      timeout: 10s
+
+  frontend_core:
+    image: dockerhiscis/frontend-his:latest
+    depends_on:
+      - gateway_api
+    environment:
+      - TZ=Asia/Bangkok
+    ports:
+      - "80:80"
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      update_config:
+        parallelism: 2
+        order: start-first
+        failure_action: rollback
+        delay: 5s
+      rollback_config:
+        parallelism: 0
+        order: stop-first
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    healthcheck:
+      test: service nginx status || exit 1
+      interval: 5s
+      retries: 2
+      start_period: 2s
+      timeout: 10s
+
+  frontend_antrian_pharmm:
+    image: dockerhiscis/frontend_antrian_pharmm:latest
+    depends_on:
+      - gateway_api
+    environment:
+      - TZ=Asia/Bangkok
+    ports:
+      - "1234:80"
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      update_config:
+        parallelism: 2
+        order: start-first
+        failure_action: rollback
+        delay: 5s
+      rollback_config:
+        parallelism: 0
+        order: stop-first
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    healthcheck:
+      test: service nginx status || exit 1
+      interval: 5s
+      retries: 2
+      start_period: 2s
+      timeout: 10s
+
+  socket_pharmm:
+    image: dockerhiscis/socket_pharmm:latest
+    environment:
+      - TZ=Asia/Bangkok
+    ports:
+      - "3000:3000"
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      update_config:
+        parallelism: 2
+        order: start-first
+        failure_action: rollback
+        delay: 5s
+      rollback_config:
+        parallelism: 0
+        order: stop-first
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    healthcheck:
+      test: curl --fail http://localhost:80/health || exit 1 #??
+      interval: 5s
+      retries: 2
+      start_period: 2s
+      timeout: 10s
+
+  socket_printer:
+    image: dockerhiscis/socket_printer:latest
+    environment:
+      - TZ=Asia/Bangkok
+    ports:
+      - "4444:3000"
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      update_config:
+        parallelism: 2
+        order: start-first
+        failure_action: rollback
+        delay: 5s
+      rollback_config:
+        parallelism: 0
+        order: stop-first
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    healthcheck:
+      test: curl --fail http://localhost:80/health || exit 1 #??
+      interval: 5s
+      retries: 2
+      start_period: 2s
+      timeout: 10s
+
+networks:
+  api-network:
+    external: true
+  dbpis-network:
+    external: true
+  dbpharmm-network:
+    external: true
+  rabbit-network:
+    external: true
+  sagamachine-network:
+    external: true
+  seq-network:
+    external: true
+  minio-network:
+    external: true
+  sagadb-network:
+    external: true
+
+volumes:
+  dbpis_data:
+    external: true
+    name: dbpis_data
+  dbpharmm_data:
+    external: true
+    name: dbpharmm_data
+  rabbitmq_data:
+    external: true
+    name: rabbitmq_data
+  rabbitmq_log:
+    external: true
+    name: rabbitmq_log
+  minio_data:
+    external: true
+    name: minio_data
+  seq_data:
+    external: true
+    name: seq_data
+  orderstatedb_data:
+    external: true
+    name: orderstatedb_data
